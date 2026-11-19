@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -17,7 +18,7 @@ void handleSIGTSTP(int signo) {
         // Enter forgound only mode
 
 		// no printf 
-		// write is async signal safe
+		// write() is async signal safe
 		char msg[] = "\nEntering foreground-only mode (& is now ignored)\n: ";
         write(STDOUT_FILENO, msg, sizeof(msg) - 1);
         foregroundMode = 1;
@@ -63,6 +64,19 @@ struct commandLine *parse_input() {
 		token=strtok(NULL," \n");
 	}
 	return currCommand;
+}
+
+void freeCommand(struct commandLine *currCommand) {
+    if (currCommand == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < currCommand->argc; i++) {
+        free(currCommand->argv[i]);
+    }
+    free(currCommand->input_file);
+    free(currCommand->output_file);
+    free(currCommand);
 }
 
 // for debug
@@ -162,10 +176,10 @@ int main(){
 
 		if (strcmp(currCommand->argv[0], "#") == 0) {
 
+			freeCommand(currCommand);
 			continue;
 
-		}
-		else if (strcmp(currCommand->argv[0], "exit") == 0) {
+		} else if (strcmp(currCommand->argv[0], "exit") == 0) {
 
     		exitProgram = 1;
 
@@ -202,12 +216,46 @@ int main(){
 					// Child process
 
 					initializeChildSignals(currCommand->is_bg);
+					
+					if (currCommand->input_file != NULL) {
+						int inFd = open(currCommand->input_file, O_RDONLY);
 
+						if (inFd < 0) {
+							printf("cannot open %s for input\n", currCommand->input_file);
+							_exit(1);
+						}
+
+						if (dup2(inFd, STDIN_FILENO) < 0) {
+							perror("Failed to read dup2 stdin\n");
+							close(inFd);
+							_exit(1);
+						}
+
+						close(inFd);
+					} 
+
+					if (currCommand->output_file != NULL) {
+						int outFd = open(currCommand->output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+						if (outFd < 0) {
+							printf("cannot open %s for output\n", currCommand->output_file);
+							_exit(1);
+						}
+
+						if (dup2(outFd, STDOUT_FILENO) < 0) {
+							perror("Failed to read dup2 stdout");
+							close(outFd);
+							_exit(1);
+						}
+						close(outFd);
+					} 
+					
+					
 
 					if (execvp(currCommand->argv[0], currCommand->argv) == -1) {
-						printf("execvp failed\n");
+						printf("%s: no such file or directory\n", currCommand->argv[0]);
 						exitStatusCode = 1;
-						exit(1); // forces termination
+						_exit(1); // forces termination
 					}
 
 					break;
@@ -243,6 +291,7 @@ int main(){
 			}
 		}
 
+		freeCommand(currCommand);
 
     }
 

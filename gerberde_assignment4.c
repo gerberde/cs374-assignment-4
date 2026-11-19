@@ -174,7 +174,7 @@ int main(){
         currCommand = parse_input();
         // writeCommand(currCommand);
 
-		if (strcmp(currCommand->argv[0], "#") == 0) {
+		if (strchr(currCommand->argv[0], '#') != NULL) {
 
 			freeCommand(currCommand);
 			continue;
